@@ -1,6 +1,8 @@
 import pandas as pd
 import xgboost as xgb
 import random
+from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
 
 bus_trips = pd.read_csv('./data/bus_running_times_654.csv')
 bus_dwells = pd.read_csv('./data/bus_dwell_times_654.csv')
@@ -39,12 +41,18 @@ bus_dwells_model = xgb.XGBRegressor(
     colsample_bytree=1
 )
 
+simple_bus_trips_model = LinearRegression()
+simple_bus_dwells_model = LinearRegression()
+
 bus_trips_model.fit(bus_trips_X, bus_trips_Y)
 bus_dwells_model.fit(bus_dwells_X, bus_dwells_Y)
+simple_bus_trips_model.fit(bus_trips_X, bus_trips_Y)
+simple_bus_dwells_model.fit(bus_dwells_X, bus_dwells_Y)
 
-results = pd.DataFrame(columns=['expected', 'real'])
+results = pd.DataFrame(columns=['Linear Regression', 'Gradient Boosting', 'Real'])
 
 for _ in range(2000):
+    print(_)
     random_trip_id = bus_trips['trip_id'].sample(1).iloc[0]
     direction = bus_trips[(bus_trips['trip_id'] == random_trip_id)]['direction'].iloc[0]
 
@@ -55,7 +63,8 @@ for _ in range(2000):
         random_start = random.randint(21, 34)
         random_end = random.randint(random_start, 34)
 
-    expected = 0
+    linear_regression = 0
+    gradient_boosting = 0
     real = 0
 
     for i in range(random_start, random_end+1):
@@ -65,14 +74,16 @@ for _ in range(2000):
 
         if random_trip.empty:
             average_value = bus_trips[(bus_trips['segment'] == i)]["run_time_in_seconds"].mean()
-            expected += average_value
+            linear_regression += average_value
+            gradient_boosting += average_value
             real += average_value
             continue
 
         random_trip_x = random_trip[["direction", "segment", "start_time", "weekday"]]
         random_trip_y = bus_trips_model.predict(random_trip_x)
 
-        expected += random_trip_y
+        linear_regression += simple_bus_trips_model.predict(random_trip_x)[0]
+        gradient_boosting += random_trip_y[0]
         real += random_trip["run_time_in_seconds"].iloc[0]
 
     if direction == 1:
@@ -89,21 +100,39 @@ for _ in range(2000):
 
         if random_trip.empty:
             average_value = bus_dwells[(bus_dwells['bus_stop'] == i)]["dwell_time_in_seconds"].mean()
-            expected += average_value
+            linear_regression += average_value
+            gradient_boosting += average_value
             real += average_value
             continue
 
         random_trip_x = random_trip[["direction", "bus_stop", "start_time", "weekday"]]
         random_trip_y = bus_dwells_model.predict(random_trip_x)
 
-        expected += random_trip_y
+        linear_regression += simple_bus_dwells_model.predict(random_trip_x)[0]
+        gradient_boosting += random_trip_y[0]
         real += random_trip["dwell_time_in_seconds"].iloc[0]
 
-    results.loc[len(results)] = [expected, real]
+    results.loc[len(results)] = [linear_regression, gradient_boosting, real]
 
-results['absolute_error'] = abs(results['expected'] - results['real'])
-mae = results['absolute_error'].mean()
-print(f"Mean Absolute Error: {mae}")
+results['lr_absolute_error'] = abs(results['Linear Regression'] - results['Real'])
+results['gb_absolute_error'] = abs(results['Gradient Boosting'] - results['Real'])
 
-# Print the first few rows
+lr_mae = results['lr_absolute_error'].mean()
+gb_mae = results['gb_absolute_error'].mean()
+print(f"Mean Absolute Error (Linear Regression): {lr_mae}")
+print(f"Mean Absolute Error (Gradient Boosting): {gb_mae}")
+
+plt.figure(figsize=(10, 6))
+plt.hist(results['gb_absolute_error'], bins=50, edgecolor='black', color='skyblue')
+plt.title('Histogram of Absolute Errors')
+plt.xlabel('Absolute Error')
+plt.ylabel('Frequency')
+plt.grid(True)
+plt.savefig('histogram_plot.png')  # Save the plot to a file
+
+pd.set_option('display.width', 400)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_colwidth', None)
+pd.set_option('display.float_format', '{:.2f}'.format)
+
 print(results.head(10))
